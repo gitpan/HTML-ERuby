@@ -1,17 +1,14 @@
 package HTML::ERuby;
-# $Id: ERuby.pm,v 1.2 2002/04/13 11:21:27 ikechin Exp $
+# $Id: ERuby.pm,v 1.5 2002/04/14 01:04:49 ikechin Exp $
 use strict;
 use vars qw($VERSION $ERUBY_TAG_RE);
 use IO::File;
 use Carp ();
-use Inline Ruby =><<'END';
-def _rb_eval(str)
-  eval(str)
-end
-END
+use Inline::Ruby qw(rb_eval);
+use Data::Dumper;
 
-$ERUBY_TAG_RE = qr/(<%%)|(%%>)|(<%=)|(<%#)|(<%)|(%>)|(\n)/so;
-$VERSION = '0.01';
+$ERUBY_TAG_RE = qr/(<%%|%%>|<%=|<%#|<%|%>|\n)/so;
+$VERSION = '0.02';
 
 sub new {
     my $class = shift;
@@ -35,17 +32,37 @@ sub compile {
     else {
 	Carp::croak("please specify ERuby document");
     }
+    my $vars = '';
+    if ($args{vars}) {
+	$vars = $self->_convert_vars($args{vars});
+    }
     my $src = $self->_parse(\$data);
-    return _rb_eval($src);
+    return rb_eval($vars. $src);
 }
 
 sub _open_file {
     my ($self, $filename) = @_;
     local $/ = undef;
-    my $f = IO::File->new($filename, "r") or Carp::croak($!);
+    my $f = IO::File->new($filename, "r") or Carp::croak("can not open eruby file: $filename");
     my $data = $f->getline;
     $f->close;
     return $data;
+}
+
+sub _convert_vars {
+    my ($self, $vars) = @_;
+    my $code = '';
+    local $Data::Dumper::Deepcopy = 1;
+    while(my ($name, $value) = each %$vars) {
+	if (my $type = ref($value)) {
+	    Carp::croak(__PACKAGE__. " supports String, Hash and Array only")
+		    if $type ne 'ARRAY' && $type ne 'HASH';
+	}
+	my $dumped = Dumper $value;
+	$dumped =~ s/\$VAR1 =//; # strip Data::Dumper '$VAR1 =' string.
+	$code .= "$name = $dumped\n";
+    }
+    return $code;
 }
 
 # copy from erb/compile.rb and Perlize :)
@@ -53,10 +70,10 @@ sub _parse {
     my($self, $scalarref) = @_;
     my $src = q/_erb_out = '';/;
     my @text = split($ERUBY_TAG_RE, $$scalarref);
-    my @content;
+    my @content = ();
     my @cmd = ("_erb_out = ''\n");
-    my $stag;
-    my $token;
+    my $stag = '';
+    my $token = '';
     for my $token(@text) {
 	if ($token eq '<%%') {
 	    push @content, '<%';
@@ -155,17 +172,49 @@ you can specify ERuby document as filename, scalarref or arrayref.
   
   $result = $compiler->compile(arrayref => \@rhtml);
 
+you can use the Perl variables in the ERuby document.
+supported types are String, Hash and Array only. NO Objects.
+See the simple example.
+
+Perl code
+
+  my %vars = (
+       '@var' => 'foo', # Ruby instance variable
+       'ARRAY_REF' => [qw(a b c)], # Ruby constant
+       'hash_ref' => {foo => 'bar', 'bar' => 'baz'} # Ruby local variable
+  );
+
+  my $compiler = HTML::ERuby->new;
+  print $compiler->compile(filename => './foo.rhtml', vars => \%vars);
+
+ERuby document
+
+  instance variable <%= @var %>
+  <% ARRAY_REF.each do |v| %>
+  <%= v %>
+  <% end %>
+  foo: <%= hash_ref['foo'] %>
+  bar: <%= hash_ref['baz'] %>
+
+Result
+
+  instance variable foo
+  
+  a
+  
+  b
+  
+  c
+  
+  foo: bar
+  bar: baz
+  
+
 =back
 
 =head1 CAVEATS
 
 this module is experimental.
-
-this module internal, using L<Inline::Ruby>. 
-so, it will create a '_Inline' directory in your current directory.
-but, you can specify it in the environment variable PERL_INLINE_DIRECTORY.
-
-See the L<Inline> manpage for details.
 
 =head1 AUTHOR
 

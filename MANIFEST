@@ -7,6 +7,8 @@ t/00_compile.t
 t/01_var.t
 t/02_loop.t
 t/03_comment.t
+t/04_perlvars.t
 t/comment.rhtml
 t/loop.rhtml
+t/perlvars.rhtml
 t/var.rhtml
